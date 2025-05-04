@@ -1,14 +1,3 @@
-Here is the final combined `README.md` that includes:
-
-* What the repo is for
-* How keys are managed
-* How to SSH into the server
-* How to use an alias
-* How to contribute keys or revoke them
-
----
-
-````markdown
 # 🔐 Pointblanks SSH Key Management
 
 This repository manages SSH access to the **Pointblanks server** using GitHub Actions. It syncs the `authorized_keys2` file to the server, which is separate from system-level `authorized_keys`. This allows safe, team-managed access that can be rotated or revoked via pull requests.
