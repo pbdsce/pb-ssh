@@ -1,42 +1,40 @@
-name: Sync SSH Keys
+name: Sync SSH keys to VPS
 
+# Trigger on any change to authorized_keys2 (or to main branch)
 on:
   push:
     paths:
-      - 'authorized_keys'
+      - 'authorized_keys2'
+    branches:
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout keys
-        uses: actions/checkout@v4
+      # 1) checkout your repo
+      - uses: actions/checkout@v4
 
-      - name: Validate key format
+      # 2) start an ssh-agent & add the private key
+      - name: Setup SSH key
+        uses: webfactory/ssh-agent@v0.5.3
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      # 3) add your VPS to known_hosts to avoid host‑key prompt
+      - name: Add VPS to known_hosts
         run: |
-          if ! grep -E "^ssh-(ed25519|rsa) AAAA[0-9A-Za-z+/]+[=]{0,3}( .*)?$" authorized_keys; then
-            echo "❌ Invalid SSH key format detected!"
-            echo "Keys must start with 'ssh-ed25519' or 'ssh-rsa' followed by valid key material"
-            exit 1
-          fi
+          mkdir -p ~/.ssh
+          ssh-keyscan -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy keys
-        uses: appleboy/scp-action@v1
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: authorized_keys
-          target: /tmp/authorized_keys
+      # 4) copy the file to ~/.ssh/authorized_keys2 on the VPS
+      - name: Sync authorized_keys2
+        run: |
+          scp -P ${{ secrets.SSH_PORT }} authorized_keys2 \
+              ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:~/.ssh/authorized_keys2
 
-      - name: Apply keys and log
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          script: |
-            sudo mv /tmp/authorized_keys /etc/ssh/auth_keys/
-            sudo chown root:root /etc/ssh/auth_keys/authorized_keys
-            sudo chmod 644 /etc/ssh/auth_keys/authorized_keys
-            echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') - Keys updated by $GITHUB_ACTOR via $GITHUB_SHA" | sudo tee -a /var/log/ssh-key-updates.log
+      # 5) ensure correct permissions on the remote file
+      - name: Fix remote permissions
+        run: |
+          ssh -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "chmod 600 ~/.ssh/authorized_keys2 && chown ${{ secrets.SSH_USER }} ~/.ssh/authorized_keys2"
