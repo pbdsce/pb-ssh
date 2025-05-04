@@ -1,70 +1,33 @@
-name: Sync SSH keys to VPS
+name: Sync SSH Keys
 
 on:
   push:
     paths:
-      - 'authorized_keys2'
-    branches:
-      - main
+      - 'authorized_keys'
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout keys
+        uses: actions/checkout@v4
 
-      - name: Validate SSH keys file (non-blocking)
-        shell: bash
-        run: |
-          if [ ! -s authorized_keys2 ]; then
-            echo "⚠️ authorized_keys2 is empty. This will clear keys on the VPS."
-          else
-            errors=0
-            while IFS= read -r line; do
-              [[ -z "$line" || "$line" =~ ^# ]] && continue
-              echo "$line" | ssh-keygen -l -f /dev/stdin >/dev/null 2>&1 || {
-                echo "⚠️ Invalid SSH key: $line"
-                errors=$((errors+1))
-              }
-            done < authorized_keys2
-            echo "Validation completed with $errors warning(s)."
-          fi
-
-      - name: Setup SSH key
-        uses: webfactory/ssh-agent@v0.5.3
+      - name: Deploy keys
+        uses: appleboy/scp-action@v1
         with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: authorized_keys
+          target: /tmp/authorized_keys
 
-      - name: Add VPS to known_hosts
-        run: |
-          mkdir -p ~/.ssh
-          # Write host key; -p ensures port is included
-          ssh-keyscan -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
-          # fix permissions so SSH will actually use known_hosts
-          chmod 700 ~/.ssh
-          chmod 644 ~/.ssh/known_hosts
-
-      # ── New debug step ─────────────────────────────────────────────────────
-      - name: Test SSH connectivity (batch mode)
-        run: |
-          ssh -vvv -o BatchMode=yes \
-              -o StrictHostKeyChecking=yes \
-              -p ${{ secrets.SSH_PORT }} \
-              ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
-            'echo "SSH connection OK, host key trusted."'
-      # ───────────────────────────────────────────────────────────────────────
-
-      - name: Sync authorized_keys2 to VPS
-        run: |
-          scp -vvv \
-            -o BatchMode=yes \       # ← non‑interactive
-            -o StrictHostKeyChecking=yes \
-            -P ${{ secrets.SSH_PORT }} \
-            authorized_keys2 \
-            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:~/.ssh/authorized_keys2
-
-      - name: Set permissions on remote file
-        run: |
-          ssh -o BatchMode=yes -p ${{ secrets.SSH_PORT }} \
-            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
-            "chmod 600 ~/.ssh/authorized_keys2 && chown ${{ secrets.SSH_USER }} ~/.ssh/authorized_keys2"
+      - name: Apply keys
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            sudo mv /tmp/authorized_keys /etc/ssh/auth_keys/
+            sudo chown root:root /etc/ssh/auth_keys/authorized_keys
+            sudo chmod 644 /etc/ssh/auth_keys/authorized_keys
