@@ -13,27 +13,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Validation step – only warns about bad lines, allows empty file
       - name: Validate SSH keys file (non-blocking)
         shell: bash
         run: |
           if [ ! -s authorized_keys2 ]; then
-            echo "⚠️ authorized_keys2 is empty. This will remove all keys from authorized_keys2 on the VPS."
+            echo "⚠️ authorized_keys2 is empty. This will clear keys on the VPS."
           else
-            echo "Validating keys in authorized_keys2..."
             errors=0
             while IFS= read -r line; do
               [[ -z "$line" || "$line" =~ ^# ]] && continue
               echo "$line" | ssh-keygen -l -f /dev/stdin >/dev/null 2>&1 || {
-                echo "⚠️ Warning: Invalid SSH key line → $line"
+                echo "⚠️ Invalid SSH key: $line"
                 errors=$((errors+1))
               }
             done < authorized_keys2
-            if [ $errors -gt 0 ]; then
-              echo "Validation completed with $errors warning(s). Proceeding anyway..."
-            else
-              echo "✅ All keys are valid."
-            fi
+            echo "Validation completed with $errors warning(s)."
           fi
 
       - name: Setup SSH key
@@ -44,14 +38,33 @@ jobs:
       - name: Add VPS to known_hosts
         run: |
           mkdir -p ~/.ssh
+          # Write host key; -p ensures port is included
           ssh-keyscan -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+          # fix permissions so SSH will actually use known_hosts
+          chmod 700 ~/.ssh
+          chmod 644 ~/.ssh/known_hosts
+
+      # ── New debug step ─────────────────────────────────────────────────────
+      - name: Test SSH connectivity (batch mode)
+        run: |
+          ssh -vvv -o BatchMode=yes \
+              -o StrictHostKeyChecking=yes \
+              -p ${{ secrets.SSH_PORT }} \
+              ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            'echo "SSH connection OK, host key trusted."'
+      # ───────────────────────────────────────────────────────────────────────
 
       - name: Sync authorized_keys2 to VPS
         run: |
-          scp -P ${{ secrets.SSH_PORT }} authorized_keys2 \
-              ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:~/.ssh/authorized_keys2
+          scp -vvv \
+            -o BatchMode=yes \       # ← non‑interactive
+            -o StrictHostKeyChecking=yes \
+            -P ${{ secrets.SSH_PORT }} \
+            authorized_keys2 \
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:~/.ssh/authorized_keys2
 
       - name: Set permissions on remote file
         run: |
-          ssh -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+          ssh -o BatchMode=yes -p ${{ secrets.SSH_PORT }} \
+            ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
             "chmod 600 ~/.ssh/authorized_keys2 && chown ${{ secrets.SSH_USER }} ~/.ssh/authorized_keys2"
