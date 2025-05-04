@@ -2,6 +2,8 @@
 
 This repository manages SSH access to the **Pointblanks server** using GitHub Actions. It syncs the `authorized_keys2` file to the server, which is separate from system-level `authorized_keys`. This allows safe, team-managed access that can be rotated or revoked via pull requests.
 
+To get the sudo password, contact [https://github.com/govindup63](https://github.com/govindup63)
+
 ---
 
 ## 🧩 Server SSH Access
@@ -63,4 +65,3 @@ To add your key:
    ```
 
 6. Once merged, your key will be deployed automatically by GitHub Actions.
-
