@@ -1,6 +1,5 @@
 name: Sync SSH keys to VPS
 
-# Trigger on any change to authorized_keys2 (or to main branch)
 on:
   push:
     paths:
@@ -27,13 +26,19 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
 
-      # 4) copy the file to ~/.ssh/authorized_keys2 on the VPS
+      # 4) test SSH connection before syncing
+      - name: Test SSH connection
+        run: |
+          ssh -v -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
+            "echo '✅ SSH connection successful'"
+
+      # 5) copy the file to ~/.ssh/authorized_keys2 on the VPS
       - name: Sync authorized_keys2
         run: |
           scp -P ${{ secrets.SSH_PORT }} authorized_keys2 \
               ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:~/.ssh/authorized_keys2
 
-      # 5) ensure correct permissions on the remote file
+      # 6) ensure correct permissions on the remote file
       - name: Fix remote permissions
         run: |
           ssh -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }} \
